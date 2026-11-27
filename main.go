@@ -4,17 +4,26 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync/atomic"
 )
 
 func main() {
 	const port = "8080"
+	rootPath := "."
+
+	apiCfg := &apiConfig{
+		fileserverHits: atomic.Int32{},
+	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/app/", http.StripPrefix("/app",
-		http.FileServer(http.Dir("."))))
 
-	mux.HandleFunc("/healthz", handlerCheckReady)
-	
+	handlerApp := http.StripPrefix("/app", http.FileServer(http.Dir(rootPath)))
+	mux.Handle("/app/", apiCfg.middlewareMetricsInc(handlerApp))
+
+	mux.HandleFunc("GET /api/healthz", handlerCheckReady)
+	mux.HandleFunc("GET /api/metrics", apiCfg.handlerRequestCount)
+	mux.HandleFunc("POST /api/reset", apiCfg.handlerReset)
+
 	myServer := &http.Server{
 		Addr:    ":" + port,
 		Handler: mux,
@@ -27,13 +36,4 @@ func main() {
 		log.Fatalf("Error on myServer: %v", err)
 	}
 
-}
-
-func handlerCheckReady(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	_, err := w.Write([]byte(http.StatusText(http.StatusOK)))
-	if err != nil {
-		log.Printf("%v\n", err)
-		}
 }
